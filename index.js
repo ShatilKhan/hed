@@ -52,7 +52,17 @@ async function environmentSetup() {
         .execute(client);
 
     // Log the account balance
-    console.log("The new account balance is : " +accountBalance.hbars.toTinybars() + " tinybar.")
+    console.log("The new account balance is : " +accountBalance.hbars.toTinybars() + " tinybar.");
+
+    // Create the transfer transaction
+    const sendHbar = await new TransferTransaction()
+        .addHbarTransfer(myAccountId, Hbar.fromTinybars(-1000)) //Sending Account
+        .addHbarTransfer(newAccountId, Hbar.fromTinybars(1000)) //Receiving Account
+        .execute(client);
+
+    // Verify the transaction reached consensus
+    const transactionReceipt = await sendHbar.getReceipt(client);
+    console.log("The transfer from my account to new account was : " + transactionReceipt.status.toString() );
    
 }
 
