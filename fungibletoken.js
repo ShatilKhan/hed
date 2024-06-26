@@ -1,0 +1,10 @@
+let tokenCreateTx = await new TokenCreateTransaction()
+.setTokenName("USD Bar")
+.setTokenSymbol("USDB")
+.setTokenType(TokenType.FungibleCommon)
+.setDecimals(2)
+.setInitialSupply(1000)
+.setTreasuryAccountId(treasuryId)
+.setSupplyType(TokenSupplyType.Infinite)
+.setSupplyKey(supplyKey)
+.freezeWith(client);
