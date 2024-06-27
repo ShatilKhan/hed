@@ -3,7 +3,11 @@ const { Client,
     AccountCreateTransaction, 
     AccountBalanceQuery,
     Hbar, 
-    TransferTransaction } = require("@hashgraph/sdk");
+    TransferTransaction,
+    TokenCreateTransaction,
+    TokenType,
+    TokenSupplyType,
+    TokenAssociateTransaction } = require("@hashgraph/sdk");
 require('dotenv').config();
 
 
@@ -46,39 +50,112 @@ async function environmentSetup() {
     // Log the account ID
     console.log("The new account ID is : " +newAccountId);
 
-    // Verify the account balance
-    const accountBalance = await new AccountBalanceQuery()
-        .setAccountId(newAccountId)
-        .execute(client);
+    // Generate Supply key
+    const supplyKey = PrivateKey.generate();
 
-    // Log the account balance
-    console.log("The new account balance is : " +accountBalance.hbars.toTinybars() + " tinybar.");
+    // create fungible token            
+    let tokenCreateTx = await new TokenCreateTransaction()
+        .setTokenName("yamatut")
+        .setTokenSymbol("𓂍")
+        .setTokenType(TokenType.FungibleCommon)
+        .setDecimals(2)
+        .setInitialSupply(10000)
+        .setTreasuryAccountId(myAccountId)
+        .setSupplyType(TokenSupplyType.Infinite)
+        .setSupplyKey(supplyKey)
+        .freezeWith(client);
 
-    // Create the transfer transaction
-    const sendHbar = await new TransferTransaction()
-        .addHbarTransfer(myAccountId, Hbar.fromTinybars(-1000)) //Sending Account
-        .addHbarTransfer(newAccountId, Hbar.fromTinybars(1000)) //Receiving Account
-        .execute(client);
+    // Sign with treasury key
+    let tokenCreateSign = await tokenCreateTx.sign(myPrivateKey);
 
-    // Verify the transaction reached consensus
-    const transactionReceipt = await sendHbar.getReceipt(client);
-    console.log("The transfer from my account to new account was : " + transactionReceipt.status.toString() );
+    // submit to hedera net
+    let tokenCreateSubmit = await tokenCreateSign.execute(client);
+
+    // gete receipt
+    let tokenCreateRx = await tokenCreateSubmit.getReceipt(client);
+
+    // Get token Id
+    let tokenId = tokenCreateRx.tokenId;
+
+    // Log token Id 
+    console.log(`= Created token with ID: ${tokenId} \n`)
    
-    // Request cost of query
-    const queryCost = await new AccountBalanceQuery()
+    // Token association with new account
+    let transaction = await new TokenAssociateTransaction()
         .setAccountId(newAccountId)
-        .getCost(client);
+        .setTokenIds([tokenId])
+        .freezeWith(client)
+        
+    // Sign transaction with owner/operator private key
+    const signTx = await transaction.sign(newAccountPrivateKey)
 
-    // Log the cost of query 
-    console.log("The cost of query is : " +queryCost);
+    // Send tx to hedera net
+    const txResponse = await signTx.execute(client);
 
-    // Check the new account's balance
-    const getNewBalance = await new AccountBalanceQuery()
+    // Get Receipt
+    let associateRx = await txResponse.getReceipt(client);
+
+    // Tranx Status
+    const transactionStatus = associateRx.status
+
+    // log tranx status
+    console.log("Trnasaction of association was : " +transactionStatus);
+
+    //BALANCE CHECK
+    var balanceCheckTx = await new AccountBalanceQuery()
+        .setAccountId(myAccountId)
+        .execute(client);
+
+    console.log(`- My account balance balance:
+     ${balanceCheckTx.tokens._map.get(tokenId.toString())}
+      units of token ID ${tokenId}`);
+
+    var balanceCheckTx = await new AccountBalanceQuery()
         .setAccountId(newAccountId)
         .execute(client);
 
-    // Log the balance after transfer
-    console.log(" The account balance after the transfer is: " +getNewBalance.hbars.toTinybars() + " tinybars.")
+    console.log(`- New Account balance: 
+    ${balanceCheckTx.tokens._map.get(tokenId.toString())}
+     units of token ID ${tokenId}`);
+
+
+    // Transfer token to new account
+    const transferTransaction = await new TransferTransaction()
+        .addTokenTransfer(tokenId, myAccountId, -10)
+        .addTokenTransfer(tokenId, newAccountId, 10)
+        .freezeWith(client);
+
+    // Sign with my private key(treaury key)
+    const signTransferTx = await transferTransaction.sign(myPrivateKey);
+
+    // Submit to hedera net
+    const txTransferRx = await signTransferTx.execute(client);
+
+    // Get rceipt
+    const transferTxReceipt = await txTransferRx.getReceipt(client);
+
+    // Status
+    const transferStatus = transferTxReceipt.status;
+
+    console.log("Transaction of transafer was : " +transferStatus)
+
+    //BALANCE CHECK
+    var balanceCheckTx = await new AccountBalanceQuery()
+        .setAccountId(myAccountId)
+        .execute(client);
+
+    console.log(`- My account balance balance:
+     ${balanceCheckTx.tokens._map.get(tokenId.toString())}
+      units of token ID ${tokenId}`);
+
+    var balanceCheckTx = await new AccountBalanceQuery()
+        .setAccountId(newAccountId)
+        .execute(client);
+        
+    console.log(`- New Account balance: 
+    ${balanceCheckTx.tokens._map.get(tokenId.toString())}
+     units of token ID ${tokenId}`);
+
 }
 
 
