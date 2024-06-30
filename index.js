@@ -1,5 +1,6 @@
 const { Client, 
-    PrivateKey, 
+    PrivateKey,
+    Hbar, 
     FileCreateTransaction, 
     ContractCreateTransaction,
     ContractFunctionParameters,
@@ -51,7 +52,7 @@ async function environmentSetup() {
     // Instantiate the contract instance
     const contractTx = await new ContractCreateTransaction()
         .setBytecodeFileId(byetcodeFileId)
-        .setGas(100000)
+        .setGas(500000)
         .setConstructorParameters(
             new ContractFunctionParameters()
             .addString("Hello Hedera"));
@@ -74,7 +75,7 @@ async function environmentSetup() {
         .setGas(100000)
         .setContractId(newContractId)
         .setFunction("get_message")
-        .setQueryPayment(new Hbar(2));
+        .setQueryPayment(new Hbar(10));
 
     // Submit to net
     const getMessage = await contractCall.execute(client);
@@ -105,7 +106,7 @@ async function environmentSetup() {
             .setContractId(newContractId)
             .setGas(100000)
             .setFunction("get_message")
-            .setQueryPayment(new Hbar(2));
+            .setQueryPayment(new Hbar(10));
 
     // submit
     const querySubmit = await contractCallQuery.execute(client);
