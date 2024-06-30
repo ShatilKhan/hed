@@ -1,14 +1,12 @@
 const { Client, 
     PrivateKey, 
-    AccountCreateTransaction, 
-    AccountBalanceQuery,
-    Hbar, 
-    TransferTransaction,
-    TokenCreateTransaction,
-    TokenType,
-    TokenSupplyType,
-    TokenAssociateTransaction } = require("@hashgraph/sdk");
+    FileCreateTransaction, 
+    ContractCreateTransaction,
+    ContractFunctionParameters,
+    ContractCallQuery,
+    ContractExecuteTransaction} = require("@hashgraph/sdk");
 require('dotenv').config();
+
 
 
 async function environmentSetup() {
@@ -27,134 +25,95 @@ async function environmentSetup() {
     // Set my account as the client's operator
     client.setOperator(myAccountId, myPrivateKey );
 
-    // Set default maxx trx fee in hbar
-    client.setDefaultMaxTransactionFee(new Hbar(100));
 
-    // Set Max payment for queries in hbar
-    client.setDefaultMaxQueryPayment(new Hbar(50));
 
-    // Create new keys
-    const newAccountPrivateKey = PrivateKey.generateED25519();
-    const newAccountPublicKey = newAccountPrivateKey.publicKey;
+    //Import the compiled contract from the HelloHedera.json file
+    let helloHedera = require("./HelloHedera.json");
+    const bytecode = helloHedera.data.bytecode.object;
 
-    // Create new account with 1000 tinybars starting balance
-    const newAccount = await new AccountCreateTransaction()
-        .setKey(newAccountPublicKey)
-        .setInitialBalance(Hbar.fromTinybars(1000))
-        .execute(client);
+    // Create a file on Hedera & store the hex-encoded bytecode
+    const fileCreateTx = new FileCreateTransaction()
+        .setContents(bytecode);
 
-    // Get the new account ID
-    const getReceipt = await newAccount.getReceipt(client);
-    const newAccountId = getReceipt.accountId;
+    // Sign & cubmit to net
+    const submitTx = await fileCreateTx.execute(client);
 
-    // Log the account ID
-    console.log("The new account ID is : " +newAccountId);
+    // Receipt
+    const fileReceipt = await submitTx.getReceipt(client);
 
-    // Generate Supply key
-    const supplyKey = PrivateKey.generate();
+    // File ID from receipt
+    const byetcodeFileId = fileReceipt.fileId;
 
-    // create fungible token            
-    let tokenCreateTx = await new TokenCreateTransaction()
-        .setTokenName("yamatut")
-        .setTokenSymbol("𓂍")
-        .setTokenType(TokenType.FungibleCommon)
-        .setDecimals(2)
-        .setInitialSupply(10000)
-        .setTreasuryAccountId(myAccountId)
-        .setSupplyType(TokenSupplyType.Infinite)
-        .setSupplyKey(supplyKey)
-        .freezeWith(client);
+    console.log("The smart contract byte code file ID is : "
+     +byetcodeFileId);
 
-    // Sign with treasury key
-    let tokenCreateSign = await tokenCreateTx.sign(myPrivateKey);
 
-    // submit to hedera net
-    let tokenCreateSubmit = await tokenCreateSign.execute(client);
+    // Instantiate the contract instance
+    const contractTx = await new ContractCreateTransaction()
+        .setBytecodeFileId(byetcodeFileId)
+        .setGas(100000)
+        .setConstructorParameters(
+            new ContractFunctionParameters()
+            .addString("Hello Hedera"));
 
-    // gete receipt
-    let tokenCreateRx = await tokenCreateSubmit.getReceipt(client);
+    // Submit to net
+    const contractRx = await contractTx.execute(client);
 
-    // Get token Id
-    let tokenId = tokenCreateRx.tokenId;
+    // receipt
+    const contractReceipt = await contractRx.getReceipt(client);
 
-    // Log token Id 
-    console.log(`= Created token with ID: ${tokenId} \n`)
+    // Get smart contract ID
+    const newContractId = contractReceipt.contractId;
+
+    console.log("The smart contract ID is "  
+    +newContractId);
    
-    // Token association with new account
-    let transaction = await new TokenAssociateTransaction()
-        .setAccountId(newAccountId)
-        .setTokenIds([tokenId])
-        .freezeWith(client)
-        
-    // Sign transaction with owner/operator private key
-    const signTx = await transaction.sign(newAccountPrivateKey)
 
-    // Send tx to hedera net
-    const txResponse = await signTx.execute(client);
+    // Call smart contract
+    const contractCall = await new ContractCallQuery()
+        .setGas(100000)
+        .setContractId(newContractId)
+        .setFunction("get_message")
+        .setQueryPayment(new Hbar(2));
 
-    // Get Receipt
-    let associateRx = await txResponse.getReceipt(client);
+    // Submit to net
+    const getMessage = await contractCall.execute(client);
 
-    // Tranx Status
-    const transactionStatus = associateRx.status
+    // get string from result @ index 0
+    const message = getMessage.getString(0);
 
-    // log tranx status
-    console.log("Trnasaction of association was : " +transactionStatus);
+    console.log("The contract message: " + message); 
 
-    //BALANCE CHECK
-    var balanceCheckTx = await new AccountBalanceQuery()
-        .setAccountId(myAccountId)
-        .execute(client);
+    // Create tranX to update the contract msg
+    const contractExecTx = await new ContractExecuteTransaction()
+            .setContractId(newContractId)
+            .setGas(100000)
+            .setFunction("set_message", new ContractFunctionParameters()
+                .addString("Hello Again!"));
 
-    console.log(`- My account balance balance:
-     ${balanceCheckTx.tokens._map.get(tokenId.toString())}
-      units of token ID ${tokenId}`);
+    // submit to net
+    const submitExecTx = await contractExecTx.execute(client);
 
-    var balanceCheckTx = await new AccountBalanceQuery()
-        .setAccountId(newAccountId)
-        .execute(client);
+    // receipt
+    const execReceipt = await submitExecTx.getReceipt(client);
+    
+    console.log("The transaction status is : " 
+    +execReceipt.status.toString());
 
-    console.log(`- New Account balance: 
-    ${balanceCheckTx.tokens._map.get(tokenId.toString())}
-     units of token ID ${tokenId}`);
+    // Query contract fro message
+    const contractCallQuery = new ContractCallQuery()
+            .setContractId(newContractId)
+            .setGas(100000)
+            .setFunction("get_message")
+            .setQueryPayment(new Hbar(2));
 
+    // submit
+    const querySubmit = await contractCallQuery.execute(client);
 
-    // Transfer token to new account
-    const transferTransaction = await new TransferTransaction()
-        .addTokenTransfer(tokenId, myAccountId, -10)
-        .addTokenTransfer(tokenId, newAccountId, 10)
-        .freezeWith(client);
+    // get updated message at index 0
+    const newMessage = querySubmit.getString(0);
 
-    // Sign with my private key(treaury key)
-    const signTransferTx = await transferTransaction.sign(myPrivateKey);
-
-    // Submit to hedera net
-    const txTransferRx = await signTransferTx.execute(client);
-
-    // Get rceipt
-    const transferTxReceipt = await txTransferRx.getReceipt(client);
-
-    // Status
-    const transferStatus = transferTxReceipt.status;
-
-    console.log("Transaction of transafer was : " +transferStatus)
-
-    //BALANCE CHECK
-    var balanceCheckTx = await new AccountBalanceQuery()
-        .setAccountId(myAccountId)
-        .execute(client);
-
-    console.log(`- My account balance balance:
-     ${balanceCheckTx.tokens._map.get(tokenId.toString())}
-      units of token ID ${tokenId}`);
-
-    var balanceCheckTx = await new AccountBalanceQuery()
-        .setAccountId(newAccountId)
-        .execute(client);
-        
-    console.log(`- New Account balance: 
-    ${balanceCheckTx.tokens._map.get(tokenId.toString())}
-     units of token ID ${tokenId}`);
+    console.log("The updated contract message: " +newMessage);
 
 }
 
